@@ -5,7 +5,7 @@ const path = require('path'); // للتعامل مع مسارات الملفات
 const cron = require('node-cron'); // لاستخدام الجدولة
 
 // 🔧Credentials Part
-const email = 'alaataha275@gmail.com';
+const email = 'YourEmail';
 const password = 'YourPassword';
 
 // 🔗Webhook to GHL
