@@ -1,44 +1,43 @@
 const puppeteer = require('puppeteer');
 const axios = require('axios');
-const fs = require('fs').promises; // لاستخدام وظائف الملفات غير المتزامنة
-const path = require('path'); // للتعامل مع مسارات الملفات
-const cron = require('node-cron'); // لاستخدام الجدولة
+const fs = require('fs').promises; // For asynchronous file operations
+const path = require('path'); // For handling file paths
+const cron = require('node-cron'); // For scheduling tasks
 
-// 🔧Credentials Part
-const email = 'YourEmail';
-const password = 'YourPassword';
+// 🔧 Email and password for login
+const email = 'Email'; 
+const password = 'Password'; 
 
-// 🔗Webhook to GHL
+// 🔗 Webhook URL
 const webhookUrl = 'https://services.leadconnectorhq.com/hooks/V80aofkSRvoJmhFV6p7v/webhook-trigger/36ef9b5e-2dc9-47de-9ea4-225c417ff0e2';
 
-// 🔗Sign in Page
+// 🔗 Onboarding URL
 const onboardingUrl = 'https://signin.mindbodyonline.com/StaffOnboarding?code=Q2ZESjhLM21EL2UrT1hwS3ZXbFVvZk94ZEVoODFTTjc4eGUyUlAxejk1aDEzSE5OTHZCbTNJNHhXeFpjWENhaThvZ0VSRi9ZMUdrNUdPcHdLVnBsSTZuOTRzK3VCRjFQNVN0OGwvVzkxY2VWSHV4b2drQVRTN092YjZramloaDRoRXBaZnJsWUJvQkZKZlBqczZMY2FhODQxRFFVYU14VTBSWVBDeG1Jb09DUXRPUThzTDFES1pWR3BlOFNKcjVLWndkajY1VVVzUzhUMjBuTWV5aWxBaVVZWWx2U2xzM2hiSlZTUG5Vc25jWVlVcW5m&userId=6862b7736908d7ff2024dd77&subscriberId=5723165&customerAccountName=Chin+Up!+Aesthetics';
 
-// 🔁Our five days APIs
+// 🔁 API URLs for the five specified days in the required order
 const appointmentUrls = [
     'https://clients.mindbodyonline.com/DailyStaffSchedule/DailyStaffSchedules?studioID=5723165&isLibAsync=true&isJson=true&StartDate=1753056000&EndDate=1753056000&View=day&TabID=9&StaffIDs%5B%5D=0&programID=0&includeRequests=false', // 1st day
-    'https://clients.mindbodyonline.com/DailyStaffSchedule/DailyStaffSchedules?studioID=5723165&isLibAsync=true&isJson=true&StartDate=1752796800&EndDate=1752796800&View=day&TabID=9&StaffIDs%5B%5D=0&programID=0&includeRequests=false', // 2nd day
-    'https://clients.mindbodyonline.com/DailyStaffSchedule/DailyStaffSchedules?studioID=5723165&isLibAsync=true&isJson=true&StartDate=1752883200&EndDate=1752883200&View=day&TabID=9&StaffIDs%5B%5D=0&programID=0&includeRequests=false', // 3rd day
-    'https://clients.mindbodyonline.com/DailyStaffSchedule/DailyStaffSchedules?studioID=5723165&isLibAsync=true&isJson=true&StartDate=1753228800&EndDate=1753228800&View=day&TabID=9&StaffIDs%5B%5D=0&programID=0&includeRequests=false', // 4th day
-    'https://clients.mindbodyonline.com/DailyStaffSchedule/DailyStaffSchedules?studioID=5723165&isLibAsync=true&isJson=true&StartDate=1753142400&EndDate=1753142400&View=day&TabID=9&StaffIDs%5B%5D=0&programID=0&includeRequests=false', // 5th day
+    'https://clients.mindbodyonline.com/DailyStaffSchedule/DailyStaffSchedules?studioID=5723165&isLibAsync=true&isJson=true&StartDate=1753142400&EndDate=1753142400&View=day&TabID=9&StaffIDs%5B%5D=0&programID=0&includeRequests=false', // 2nd day
+    'https://clients.mindbodyonline.com/DailyStaffSchedule/DailyStaffSchedules?studioID=5723165&isLibAsync=true&isJson=true&StartDate=1753228800&EndDate=1753228800&View=day&TabID=9&StaffIDs%5B%5D=0&programID=0&includeRequests=false', // 3rd day
+    'https://clients.mindbodyonline.com/DailyStaffSchedule/DailyStaffSchedules?studioID=5723165&isLibAsync=true&isJson=true&StartDate=1753315200&EndDate=1753315200&View=day&TabID=9&StaffIDs%5B%5D=0&programID=0&includeRequests=false', // 4th day
+    'https://clients.mindbodyonline.com/DailyStaffSchedule/DailyStaffSchedules?studioID=5723165&isLibAsync=true&isJson=true&StartDate=1753401600&EndDate=1753401600&View=day&TabID=9&StaffIDs%5B%5D=0&programID=0&includeRequests=false', // 5th day
 ];
 
-// 📁 Saving output part
+// 📁 Path to the file storing previous appointments
 const PREVIOUS_APPOINTMENTS_FILE = path.join(__dirname, 'previous_appointments.json');
 
-// 🌐 Variables for login process
+// 🌐 Global variables for browser, page, and login status
 let browserInstance = null;
 let pageInstance = null;
 let isLoggedIn = false;
 
-//Generating an email for contacting GHL
-function generateRandomEmail() {
-    const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
-    const name = Array.from({ length: 8 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
-    return `${name}@gmail.com`;
-}
+// Constant email address for GHL webhook
+const GHL_CONTACT_EMAIL = 'updates.checker@gmail.com'; // Changed email address
 
-//Calling Stored Appointments
+/**
+ * 💾 Loads previously stored appointments from a JSON file.
+ * @returns {Promise<Array>} Array of stored appointments.
+ */
 async function loadPreviousAppointments() {
     try {
         const data = await fs.readFile(PREVIOUS_APPOINTMENTS_FILE, 'utf8');
@@ -46,7 +45,7 @@ async function loadPreviousAppointments() {
     } catch (error) {
         if (error.code === 'ENOENT') {
             console.log('ℹ️ Previous appointments file not found. Starting fresh.');
-            return []; // إذا لم يكن الملف موجودًا، ابدأ بمصفوفة فارغة
+            return []; // If file doesn't exist, start with an empty array
         }
         console.error('❌ Error loading previous appointments:', error.message);
         return [];
@@ -54,7 +53,7 @@ async function loadPreviousAppointments() {
 }
 
 /**
- * Saves current appointments to a JSON file.
+ * 📝 Saves current appointments to a JSON file.
  * @param {Array} appointments - Array of appointments to save.
  */
 async function saveCurrentAppointments(appointments) {
@@ -67,7 +66,27 @@ async function saveCurrentAppointments(appointments) {
 }
 
 /**
- * Compare old and new appointments to identify changes (added, cancelled, modified).
+ * 🧹 Cleans an appointment object by removing properties with null, 0, false, or 'none' values.
+ * This function creates a new object and copies only valid properties.
+ * @param {object} app - The appointment object to clean.
+ * @returns {object} The cleaned appointment object.
+ */
+function cleanAppointmentObject(app) {
+    const cleanedApp = {};
+    for (const key in app) {
+        if (Object.prototype.hasOwnProperty.call(app, key)) {
+            const value = app[key];
+            // Check for null, 0, false, 'none' (case-insensitive)
+            if (value !== null && value !== 0 && value !== false && String(value).toLowerCase() !== 'none') {
+                cleanedApp[key] = value;
+            }
+        }
+    }
+    return cleanedApp;
+}
+
+/**
+ * 🔄 Compares old and new appointments to identify changes (added, cancelled, modified).
  * Assumes each appointment has a unique ID (e.g., AppointmentID) and client details.
  * @param {Array} oldAppointments - The previously fetched flat list of appointments.
  * @param {Array} newAppointments - The newly fetched flat list of appointments.
@@ -132,6 +151,7 @@ function compareAppointments(oldAppointments, newAppointments) {
     const processedNewAppIds = new Set(); // To avoid double-processing new appointments
 
     cancelled.forEach(oldCancelledApp => {
+        // Create a unique identifier for the client based on name, phone, email
         const clientIdentifier = `${oldCancelledApp.ClientName || ''}_${oldCancelledApp.ClientMobilePhone || ''}_${oldCancelledApp.ClientEmail || ''}`;
         let foundAsModified = false;
 
@@ -171,6 +191,7 @@ function compareAppointments(oldAppointments, newAppointments) {
 
 
 /**
+ * 🧑‍💻 Login function
  * Handles the login process.
  * @param {Page} page - Puppeteer page instance.
  * @returns {Promise<boolean>} True if login is successful, false otherwise.
@@ -212,8 +233,7 @@ async function login(page) {
         }
 
         // Navigate to the main appointments page after login
-        // Removed specific selector wait as it was causing issues and not strictly needed for API calls.
-        await page.goto('https://clients.mindbodyonline.com/app/business/mainappointments/index', { waitUntil: 'networkidle2' });
+        await page.goto('https://clients.mindbodyonline.com/app/business/mainappointments/index', { waitUntil: 'networkidle2', timeout: 60000 }); // Added timeout here
         console.log('✅ Arrived at main appointments page (or attempted).');
 
         return true; // Login successful
@@ -225,103 +245,160 @@ async function login(page) {
 }
 
 /**
- * Main function to scrape appointments and send updates.
+ * 🚀 Main function to scrape appointments and send updates.
  */
 async function scrapeAndSendUpdates() {
     console.log(`\n--- Starting scrape and update process at ${new Date().toLocaleString()} ---`);
 
+    let dataFetchError = false; // Flag to track if any API fetching error occurred
+
     try {
+        // If browser instance does not exist or not logged in, launch and login
         if (!browserInstance || !isLoggedIn) {
             if (browserInstance) { // Close existing browser if not logged in
                 await browserInstance.close();
                 console.log('🧹 Closing previous browser instance due to logout/error.');
             }
             browserInstance = await puppeteer.launch({
-                headless: true, //make puppeteer invisible
+                headless: false, // Run browser in visible mode for debugging
                 args: ['--no-sandbox', '--disable-setuid-sandbox'],
             });
             pageInstance = await browserInstance.newPage();
-            isLoggedIn = await login(pageInstance); // محاولة تسجيل الدخول
+            isLoggedIn = await login(pageInstance); // Attempt login
             if (!isLoggedIn) {
                 console.error('❌ Could not establish a valid login session. Skipping this run.');
-                return; // إيقاف التشغيل الحالي إذا فشل تسجيل الدخول
+                return; // Stop current run if login failed
             }
         }
 
-        let totalAppointmentsCount = 0; 
-        const dailyAppointmentCounts = {}; 
-        let currentAllAppointmentsData = []; 
+        let totalAppointmentsCount = 0; // To store the total number of appointments
+        const dailyAppointmentCounts = {}; // To store appointment counts per day with clear labels
+        let currentAllAppointmentsData = []; // To store all raw appointment objects fetched in the current run
 
         // 📅 Loop through all specified API URLs
         for (let i = 0; i < appointmentUrls.length; i++) {
             const apiUrl = appointmentUrls[i];
-            let fetchedAppointmentsForDay = []; 
+            let fetchedAppointmentsForDay = []; // To store raw appointments for this day
 
             try {
-                // استخدم Promise.all لضمان أن المستمع جاهز قبل التنقل
+                // Use Promise.all to ensure the listener is ready before navigation
                 const [response] = await Promise.all([
-                    // انتظر استجابة API المحددة التي تحتوي على بيانات DailyStaffSchedules
-                    pageInstance.waitForResponse(res => res.url() === apiUrl && res.ok(), { timeout: 30000 }), // تأكد من مطابقة الـ URL بالضبط
-                    // انتقل إلى URL الـ API مباشرة
+                    // Wait for the specific API response containing DailyStaffSchedules data
+                    pageInstance.waitForResponse(res => res.url() === apiUrl && res.ok(), { timeout: 30000 }), // Ensure URL matches exactly
+                    // Navigate directly to the API URL
                     pageInstance.goto(apiUrl, { waitUntil: 'domcontentloaded', timeout: 30000 })
                 ]);
 
-                const fullJson = await response.json(); // تحليل استجابة JSON الكاملة
+                const fullJson = await response.json(); // Parse the full JSON response
 
-                // الوصول إلى مصفوفة 'json' داخل كائن fullJson
+                // Access the 'json' array within the fullJson object
                 if (fullJson && Array.isArray(fullJson.json)) {
-                    // نجمع كل المواعيد من كل الأيام في مصفوفة 'json'
+                    // Collect all appointments from each day's 'json' array
                     fetchedAppointmentsForDay = fullJson.json.flatMap(dayData => dayData.Appointments || []);
                 } else {
                     console.log('❌ Unexpected JSON response structure. "json" array not found or not an array.');
+                    dataFetchError = true; // Set error flag if structure is unexpected
                 }
 
                 console.log(`✅ Found ${fetchedAppointmentsForDay.length} appointments for ${apiUrl}.`);
+                // Store daily appointment count with clear label
                 const dayLabel = `${i + 1}`;
                 dailyAppointmentCounts[`Total appointments for day ${dayLabel} is:`] = fetchedAppointmentsForDay.length;
-                totalAppointmentsCount += fetchedAppointmentsForDay.length; // إضافة لعدد المواعيد الكلي
-                currentAllAppointmentsData = currentAllAppointmentsData.concat(fetchedAppointmentsForDay); // إضافة المواعيد الخام لهذا اليوم إلى القائمة الكلية
+                totalAppointmentsCount += fetchedAppointmentsForDay.length; // Add to total appointment count
+                currentAllAppointmentsData = currentAllAppointmentsData.concat(fetchedAppointmentsForDay); // Add raw appointments for this day to the total list
 
             } catch (err) {
                 console.error(`❌ Failed to fetch or parse API response for ${apiUrl}:`, err.message);
                 const dayLabel = `${i + 1}`;
-                dailyAppointmentCounts[`Total appointments for day ${dayLabel} is:`] = 0; // تسجيل 0 إذا فشل الجلب
+                dailyAppointmentCounts[`Total appointments for day ${dayLabel} is:`] = 0; // Record 0 if fetch failed
+                dataFetchError = true; // Set error flag if fetch failed
             }
 
+            // 3-second pause between API calls to prevent overloading
             await new Promise(resolve => setTimeout(resolve, 3000));
         }
 
         console.log(`✅ Total appointments found across all APIs: ${totalAppointmentsCount}.`);
 
-        // 💾 Calling previous data
+        // 💾 Load previous appointments for comparison
         const previousAllAppointmentsData = await loadPreviousAppointments();
 
-        // 🔄 Comparing Process
+        // 🔄 Compare data to identify additions, cancellations, and modifications
         const { added, cancelled, modified } = compareAppointments(previousAllAppointmentsData, currentAllAppointmentsData);
 
-        // 📤 Sending Data to Webhook
-        const TestGHLMail = generateRandomEmail();
-        console.log(`🧪 TestGHLMail generated: ${TestGHLMail}`);
+        // 📤 Send data to Webhook
+        const TestGHLMail = GHL_CONTACT_EMAIL; // Using the constant email
+        console.log(`🧪 GHL Contact Email: ${TestGHLMail}`);
 
-        let messageText;
-        if (added.length > 0 || cancelled.length > 0 || modified.length > 0) {
+        let messageText = ''; // Initialize messageText as empty string
+        const hasChanges = added.length > 0 || cancelled.length > 0 || modified.length > 0;
+
+        // Declare cleaned arrays outside the if block
+        const cleanedAdded = added.map(cleanAppointmentObject);
+        const cleanedCancelled = cancelled.map(cleanAppointmentObject);
+        const cleanedModified = modified.map(m => ({
+            old: cleanAppointmentObject(m.old),
+            new: cleanAppointmentObject(m.new),
+            type: m.type
+        }));
+
+        if (dataFetchError) {
+            messageText = '❌ Could not find appointments data due to network or data parsing error.';
+        } else if (hasChanges) {
             messageText = `✅ Updates found: ${added.length} added, ${cancelled.length} cancelled, ${modified.length} modified.`;
+
+            // Append details for Added Appointments
+            if (cleanedAdded.length > 0) {
+                messageText += '\n--- Added Appointments ---';
+                cleanedAdded.forEach(app => {
+                    messageText += `\nClient ID: ${app.ClientID || app.ID || 'N/A'}, Session Type ID: ${app.SessionTypeID || 'N/A'}, Location ID: ${app.LocationID || 'N/A'}`;
+                });
+            }
+
+            // Append details for Cancelled Appointments
+            if (cleanedCancelled.length > 0) {
+                messageText += '\n--- Cancelled Appointments ---';
+                cleanedCancelled.forEach(app => {
+                    messageText += `\nClient ID: ${app.ClientID || app.ID || 'N/A'}, Session Type ID: ${app.SessionTypeID || 'N/A'}, Location ID: ${app.LocationID || 'N/A'}`;
+                });
+            }
+
+            // Append details for Modified Appointments
+            if (cleanedModified.length > 0) {
+                messageText += '\n--- Modified Appointments ---';
+                cleanedModified.forEach(m => {
+                    const oldDate = m.old.StartDateTime ? new Date(m.old.StartDateTime * 1000).toLocaleString() : 'N/A';
+                    const newDate = m.new.StartDateTime ? new Date(m.new.StartDateTime * 1000).toLocaleString() : 'N/A';
+                    messageText += `\nClient ID: ${m.new.ClientID || m.new.ID || 'N/A'}, Session Type ID: ${m.new.SessionTypeID || 'N/A'}, Location ID: ${m.new.LocationID || 'N/A'}, Old Date: ${oldDate}, New Date: ${newDate}`;
+                });
+            }
+
         } else {
             messageText = 'ℹ️ No new updates in this 5 working days.';
         }
 
         const payload = {
-            eventType: 'AppointmentsUpdateScanResult', //Scan Event
+            eventType: 'AppointmentsUpdateScanResult', // Event type reflecting scan and update results
             timestamp: new Date().toISOString(),
-            ...dailyAppointmentCounts,
-            'Total appointments in this 5 working days is:': totalAppointmentsCount,
-            addedAppointments: added, 
-            cancelledAppointments: cancelled, 
-            modifiedAppointments: modified, 
             contactEmail: TestGHLMail,
-            message: messageText //message for giving updates info
+            message: messageText // Message indicating updates or no updates
         };
 
+        // Add daily and total counts back to the payload
+        Object.assign(payload, dailyAppointmentCounts);
+        payload['Total appointments in this 5 working days is:'] = totalAppointmentsCount;
+
+        // Add update arrays after cleaning, only if they are not empty
+        if (cleanedAdded.length > 0) {
+            payload.addedAppointments = cleanedAdded;
+        }
+        if (cleanedCancelled.length > 0) {
+            payload.cancelledAppointments = cleanedCancelled;
+        }
+        if (cleanedModified.length > 0) {
+            payload.modifiedAppointments = cleanedModified;
+        }
+        
         try {
             const res = await axios.post(webhookUrl, payload);
             console.log(`📬 Webhook sent. Status: ${res.status}`);
@@ -329,17 +406,25 @@ async function scrapeAndSendUpdates() {
             console.error('❌ Failed to send webhook:', err.message);
         }
 
-        //Saving current data
-        await saveCurrentAppointments(currentAllAppointmentsData);
+        // 📝 Save current appointments as previous data for the next run
+        // Only save if there was no data fetch error, to prevent overwriting valid data with empty/partial data
+        if (!dataFetchError) {
+            await saveCurrentAppointments(currentAllAppointmentsData);
+        } else {
+            console.log('⚠️ Not saving current appointments due to data fetch error. Retaining previous state.');
+        }
 
     } catch (error) {
         console.error('❌ An unexpected error occurred during the script execution:', error.message);
+        // If a general error occurs, the session might be invalid, so reset isLoggedIn
         isLoggedIn = false;
     } finally {
+        // Do not close the browser here; keep it open for scheduled tasks
+        // It will be closed when the script is fully stopped
     }
 }
 
-// Schedule the script to run every 10 minutes
+// ⏰ Schedule the script to run every 10 minutes (can be adjusted if not needed currently)
 cron.schedule('*/10 * * * *', () => {
     console.log('--- Running scheduled task: Fetching and updating appointments ---');
     scrapeAndSendUpdates();
@@ -348,11 +433,12 @@ cron.schedule('*/10 * * * *', () => {
     timezone: "Africa/Cairo" // Set timezone to Cairo
 });
 
-// Initial startup function
+// 🏁 Initial startup function
 (async () => {
     console.log('🚀 Initializing Puppeteer and performing first login...');
+    // Launch browser and perform initial login
     browserInstance = await puppeteer.launch({
-        headless: true, 
+        headless: false, // Run browser in visible mode
         args: ['--no-sandbox', '--disable-setuid-sandbox'],
     });
     pageInstance = await browserInstance.newPage();
@@ -360,16 +446,17 @@ cron.schedule('*/10 * * * *', () => {
 
     if (isLoggedIn) {
         console.log('✅ Initial login successful. Starting first data scrape.');
-        await scrapeAndSendUpdates(); 
+        await scrapeAndSendUpdates(); // Execute first scrape after successful login
     } else {
         console.error('❌ Initial login failed. Script will not proceed with scraping until next scheduled attempt or manual restart.');
         if (browserInstance) {
-            await browserInstance.close();
+            await browserInstance.close(); // Close browser if initial login failed
             browserInstance = null;
             pageInstance = null;
         }
     }
 
+    // Add process exit handlers to ensure proper browser closure
     process.on('SIGINT', async () => {
         console.log('Received SIGINT. Closing browser...');
         if (browserInstance) {
